@@ -1,0 +1,9 @@
+langchain-core 
+langchain-community 
+langgraph  
+PyGithub 
+langchain-google-genai==2.0.9
+ipython
+fastapi
+uvicorn
+pydantic
