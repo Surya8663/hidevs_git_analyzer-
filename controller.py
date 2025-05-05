@@ -85,6 +85,7 @@ async def analyze_repository(github_repo, github_project_name, eval_criteria, sk
         
         # Step 7: Extract JSON from the final report if needed
         final_report_json = extract_json_from_llm_response(final_report)
+        final_report_json = json.loads(final_report_json)
         
         return {
             "status": "success",
