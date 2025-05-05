@@ -144,7 +144,7 @@ Return a valid JSON object with the following structure:
         "assessment_and_justification": "Detailed reasoning with specific references to repository content",
         "code_insights_and_fixes": [
         {{
-            "problematic_code": "Code snippet from the codebase showing the issue",
+            "problematic_code": "code snippet showing the issue from the codebase, using the exact syntax and indentation , without any additional commentary.",
             "issue_explanation": "Clear explanation of the problem",
             "proposed_fix": "Corrected code snippet",
             "implementation_notes": "Any additional context for implementing the fix"
@@ -240,7 +240,7 @@ Make sure:
 - All required fields are present
 - Language is professional and clear
 - You do NOT return a diff. Return a FULL refined JSON report.
-- Support all assessments with specific code examples (include file paths and line numbers when possible)
+- Support all assessments with specific code examples (include file paths when possible)
 - Provide actionable recommendations with clear implementation guidance
 - Maintain consistent scoring with thorough justifications
 - Do not wrap the code sections like this "```python ... ```"
@@ -270,7 +270,7 @@ FOR EACH CRITERION, you must:
 4. Offer actionable, prioritized recommendations
 
 FOR CODE INSIGHTS:
-- Use concise, well-formatted code snippets
+- Use concise, well-formatted code snippets 
 - Clearly explain each issue
 - Provide proposed fixes with corrected code
 - Use clear indicators to show changes
@@ -314,7 +314,7 @@ Follow the exact format:
         "assessment_and_justification": "Detailed reasoning with specific references to repository content",
         "code_insights_and_fixes": [
         {{
-            "problematic_code": "Code snippet showing the issue",
+            "problematic_code": "code snippet showing the issue from the codebase, using the exact syntax and indentation, without any additional commentary.",
             "issue_explanation": "Clear explanation of the problem",
             "proposed_fix": "Corrected code snippet",
             "implementation_notes": "Any additional context for implementing the fix"
