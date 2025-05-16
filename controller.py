@@ -1,4 +1,4 @@
-import json
+
 from utils import (
     extract_owner_and_repo,
     extract_repo_content,
@@ -8,29 +8,23 @@ from utils import (
     revise_report,
     extract_json_from_llm_response
 )
+from log_utils import log_api_call,logger
 
+
+@log_api_call
 async def analyze_repository(github_repo, github_project_name, eval_criteria, skills):
-    """
-    Main controller function to analyze a GitHub repository.
-    
-    Args:
-        github_repo: GitHub repository URL
-        github_project_name: Name of the project
-        eval_criteria: Evaluation criteria for the project
-        skills: Skills to be assessed
-        
-    Returns:
-        Dictionary containing analysis results or rejection reason
-    """
+    """Main controller function to analyze a GitHub repository."""
     try:
         # Step 1: Extract owner and repo from GitHub URL
+        logger.info("Extracting owner and repo from GitHub URL")
         owner, repo = extract_owner_and_repo(github_repo)
         
         # Step 2: Extract repository content
+        logger.info("Extracting repository content")
         repo_content_result = extract_repo_content(owner, repo)
         
-        # Check if repository was rejected (missing README, etc.)
         if repo_content_result.get("rejected", False):
+            logger.warning(f"Repository rejected: {repo_content_result['rejection_reason']}")
             return {
                 "status": "rejected",
                 "data": {"rejection_reason": repo_content_result["rejection_reason"]},
@@ -40,6 +34,7 @@ async def analyze_repository(github_repo, github_project_name, eval_criteria, sk
         codebase = repo_content_result["codebase"]
         
         # Step 3: Validate project alignment
+        logger.info("Validating project alignment")
         validation_result = validate_project_alignment(
             github_project_name, 
             eval_criteria, 
@@ -47,8 +42,8 @@ async def analyze_repository(github_repo, github_project_name, eval_criteria, sk
             codebase
         )
         
-        # Check if project was rejected during validation
         if validation_result.get("vrejected", False):
+            logger.warning(f"Validation rejected: {validation_result['rejection_reason']}")
             return {
                 "status": "rejected",
                 "data": {"rejection_reason": validation_result["rejection_reason"]},
@@ -56,6 +51,7 @@ async def analyze_repository(github_repo, github_project_name, eval_criteria, sk
             }
         
         # Step 4: Generate initial report
+        logger.info("Generating initial report")
         initial_report = generate_initial_report(
             github_repo,
             github_project_name,
@@ -65,6 +61,7 @@ async def analyze_repository(github_repo, github_project_name, eval_criteria, sk
         )
         
         # Step 5: Review the report
+        logger.info("Reviewing report")
         review_result = review_report(
             github_repo,
             eval_criteria,
@@ -74,7 +71,8 @@ async def analyze_repository(github_repo, github_project_name, eval_criteria, sk
         )
         
         # Step 6: Revise the report based on feedback
-        final_report = revise_report(
+        logger.info("Revising report")
+        final_report_dict = revise_report(
             github_repo,
             github_project_name,
             eval_criteria,
@@ -83,18 +81,16 @@ async def analyze_repository(github_repo, github_project_name, eval_criteria, sk
             initial_report,
             review_result
         )
-        
-        # Step 7: Extract JSON from the final report if needed
-        final_report_json = extract_json_from_llm_response(final_report)
-        final_report_json = json.loads(final_report_json)
-        
+
+
         return {
             "status": "success",
-            "data": {"final_report": final_report_json},
+            "data": {"final_report": final_report_dict},
             "message": "Repository analysis completed successfully"
         }
         
     except Exception as e:
+        logger.error(f"Error analyzing repository: {str(e)}")
         return {
             "status": "error",
             "data": {"error": str(e)},

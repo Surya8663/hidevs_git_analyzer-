@@ -29,6 +29,7 @@ Skills to be Assessed: {skills_to_be_assessed}
 Codebase Context:
 
 {full_context}
+
 Evaluation Instructions
 Thoroughly assess whether the provided report:
 
@@ -130,7 +131,7 @@ Return a valid JSON object with the following structure:
 {{
 "report": {{
     "project_summary": {{
-    "Project":"{project_name}"
+    "Project":"{project_name}",
     "repository": "{github_repo_link}",
     "purpose_and_functionality": "Detailed description of what the repository aims to achieve",
     "tech_stack": ["Programming language 1", "Framework 1", "Tool 1"],
@@ -300,7 +301,7 @@ Follow the exact format:
 {{
 "report": {{
     "project_summary": {{
-     "Project":"{project_name}"
+     "Project":"{project_name}",
     "repository": "{github_repo_link}",
     "purpose_and_functionality": "Detailed description of what the repository aims to achieve",
     "tech_stack": ["Programming language 1", "Framework 1", "Tool 1"],

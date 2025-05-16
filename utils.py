@@ -3,6 +3,7 @@ from github import Github
 import os
 import sys
 import json
+import re
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage
 from prompt import (
@@ -20,7 +21,7 @@ load_dotenv()
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI
     eval_llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro-preview-03-25", google_api_key=os.getenv("GEMINI_API_KEY"))
-    critique_llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro-preview-03-25", google_api_key=os.getenv("GEMINI_API_KEY"))
+    critique_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", google_api_key=os.getenv("GEMINI_API_KEY"))
     validator_llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro-preview-03-25", google_api_key=os.getenv("GEMINI_API_KEY"))
 except ImportError:
     print("Error: langchain_google_genai not installed. Please install it with pip.")
@@ -150,7 +151,7 @@ def generate_initial_report(github_repo_link, project_name, evaluation_criterias
     message = HumanMessage(content=query)
     
     result = eval_llm.invoke([sys_msg, message])
-    return result.content
+    return result.content  # Return raw content without JSON validation
 
 def review_report(github_repo_link, evaluation_criterias, skills_to_be_assessed, full_context, report):
     """Review the generated report."""
@@ -162,7 +163,7 @@ def review_report(github_repo_link, evaluation_criterias, skills_to_be_assessed,
     )
     
     review_result = critique_llm.invoke(review_prompt)
-    return review_result.content
+    return review_result.content  # Return raw content without JSON validation
 
 def revise_report(github_repo_link, project_name, evaluation_criterias, skills_to_be_assessed, full_context, prior_report, report_feedback):
     """Revise the report based on feedback."""
@@ -185,17 +186,112 @@ def revise_report(github_repo_link, project_name, evaluation_criterias, skills_t
     message = HumanMessage(content=query)
     final_result = eval_llm.invoke([sys_msg, message])
     
-    # Extract JSON content
-    content = final_result.content
-    if "```json" in content:
-        json_part = content.split("```json")[1].split("```")[0].strip()
-        return json_part
-    
-    return content
+   
+    try:
+        # First try to extract JSON
+        json_content = extract_json_from_llm_response(final_result.content)
+        
+        # If it's a string, try to fix any malformed JSON
+        if isinstance(json_content, str):
+            json_content = fix_malformed_json(json_content)
+            return json.loads(json_content)
+        return json_content
+        
+    except ValueError as e:
+        raise ValueError(f"Final report validation failed: {str(e)}")
 
-def extract_json_from_llm_response(response_content):
-    """Extract JSON from LLM response that might contain markdown code blocks."""
-    if "```json" in response_content:
-        json_part = response_content.split("```json")[1].split("```")[0].strip()
-        return json_part
-    return response_content
+import json
+import re
+
+def extract_json_from_llm_response(response: str):
+    """
+    Extracts and parses JSON from an LLM response that may contain markdown code blocks.
+    Handles various JSON formatting issues.
+    """
+    try:
+        # First try to parse the entire response as JSON
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            pass
+            
+        # Look for JSON in code blocks
+        start_pattern = "```json"
+        end_pattern = "```"
+        
+        start_idx = response.find(start_pattern)
+        if start_idx == -1:
+            # Try to find JSON without markdown
+            start_idx = response.find('{')
+            if start_idx == -1:
+                raise ValueError("No JSON content found in response")
+            content_start = start_idx
+        else:
+            content_start = start_idx + len(start_pattern)
+            
+        # Find the end of JSON content
+        end_idx = response.rstrip().rfind(end_pattern)
+        if end_idx == -1 or end_idx < content_start:
+            # Look for the last closing brace
+            end_idx = response.rstrip().rfind('}')
+            if end_idx == -1:
+                raise ValueError("No closing JSON structure found")
+            json_str = response[content_start:end_idx+1].strip()
+        else:
+            json_str = response[content_start:end_idx].strip()
+            
+        # Try to fix and parse the JSON
+        fixed_json = fix_malformed_json(json_str)
+        return json.loads(fixed_json)
+            
+    except Exception as e:
+        # Include part of the problematic response in the error
+        preview = response[:200] + "..." if len(response) > 200 else response
+        raise ValueError(f"Failed to extract valid JSON from response: {str(e)}\nResponse preview: {preview}")
+
+def fix_malformed_json(json_str: str) -> str:
+    """
+    Attempts to fix common JSON formatting issues and malformed JSON structures.
+    Returns the fixed JSON string or raises ValueError if unfixable.
+    """
+    try:
+        # First try to parse as-is
+        json.loads(json_str)
+        return json_str
+    except json.JSONDecodeError:
+        fixed = json_str
+        
+        # Remove any markdown code block markers
+        fixed = re.sub(r'```json\s*', '', fixed)
+        fixed = re.sub(r'\s*```', '', fixed)
+        
+        # Fix common JSON syntax issues
+        # Fix missing quotes around property names
+        fixed = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*?)(\s*:)', r'\1"\2"\3', fixed)
+        
+        # Fix trailing commas in objects/arrays
+        fixed = re.sub(r',(\s*[}\]])', r'\1', fixed)
+        
+        # Fix missing commas between array/object elements
+        fixed = re.sub(r'([\]"}])\s*([\[{"])', r'\1,\2', fixed)
+        
+        # Fix missing quotes around string values
+        fixed = re.sub(r':\s*([a-zA-Z_][a-zA-Z0-9_\s-]*?)([,}\]])', r':"\1"\2', fixed)
+        
+        # Fix escaped quotes within strings
+        fixed = re.sub(r'(?<!\\)"([^"]*?)(?<!\\)":\s*"([^"]*[^\\])"([^"]*)"', r'"\1":"\2\\"\\3"', fixed)
+        
+        # Remove any non-JSON text before the first { and after the last }
+        start_idx = fixed.find('{')
+        end_idx = fixed.rfind('}') + 1
+        if start_idx != -1 and end_idx != 0:
+            fixed = fixed[start_idx:end_idx]
+        
+        try:
+            # Validate the fixed JSON
+            json.loads(fixed)
+            return fixed
+        except json.JSONDecodeError as e:
+            # Provide more context in the error message
+            error_context = fixed[max(0, e.pos-50):min(len(fixed), e.pos+50)]
+            raise ValueError(f"Could not fix malformed JSON near: ...{error_context}... \nError: {str(e)}")
