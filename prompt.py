@@ -139,7 +139,7 @@ Return a valid JSON object with the following structure:
     }},
     "evaluation_criteria": [
     {{
-        "criterion_name": "Name of criterion from {evaluation_criterias}",
+        "criterion_name": "Name of criterion from :" {evaluation_criterias},
         "score": 85,
         "score_guide": "Description of what this score means on the 10-100 scale",
         "assessment_and_justification": "Detailed reasoning with specific references to repository content",
