@@ -131,8 +131,8 @@ Return a valid JSON object with the following structure:
 {{
 "report": {{
     "project_summary": {{
-    "Project":"{project_name}",
-    "repository": "{github_repo_link}",
+    "Project":{project_name},
+    "repository": {github_repo_link},
     "purpose_and_functionality": "Detailed description of what the repository aims to achieve",
     "tech_stack": ["Programming language 1", "Framework 1", "Tool 1"],
     "notable_features": ["Feature 1", "Feature 2"]
@@ -301,8 +301,8 @@ Follow the exact format:
 {{
 "report": {{
     "project_summary": {{
-     "Project":"{project_name}",
-    "repository": "{github_repo_link}",
+     "Project":{project_name},
+    "repository": {github_repo_link},
     "purpose_and_functionality": "Detailed description of what the repository aims to achieve",
     "tech_stack": ["Programming language 1", "Framework 1", "Tool 1"],
     "notable_features": ["Feature 1", "Feature 2"]
