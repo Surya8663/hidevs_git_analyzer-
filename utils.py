@@ -4,6 +4,7 @@ import os
 import sys
 import json
 import re
+import requests
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage
 from prompt import (
@@ -20,12 +21,49 @@ load_dotenv()
 # Initialize LLM instances
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI
-    eval_llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro-preview-03-25", google_api_key=os.getenv("GEMINI_API_KEY"))
-    critique_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", google_api_key=os.getenv("GEMINI_API_KEY"))
-    validator_llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro-preview-03-25", google_api_key=os.getenv("GEMINI_API_KEY"))
+    eval_llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", google_api_key=os.getenv("GEMINI_API_KEY"))
+    critique_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=os.getenv("GEMINI_API_KEY"))
+    validator_llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", google_api_key=os.getenv("GEMINI_API_KEY"))
 except ImportError:
     print("Error: langchain_google_genai not installed. Please install it with pip.")
     sys.exit(1)
+
+# ---------------------- GITHUB VALIDATION ----------------------
+GITHUB_URL_PATTERN = re.compile(
+    r'^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$'
+)
+
+def clean_github_url(url: str) -> str:
+    """
+    Cleans and normalizes a GitHub repository URL.
+    - Removes trailing .git
+    - Removes trailing slashes
+    - Strips /tree/... or /blob/... if present
+    """
+    url = url.strip()
+    # Remove .git and trailing slash
+    if url.endswith(".git"):
+        url = url[:-4]
+    url = url.rstrip("/")
+
+    # Remove /tree/... or /blob/...
+    url = re.sub(r'/(tree|blob)/.*$', '', url)
+
+    return url
+
+def is_valid_github_url(url: str) -> bool:
+    """Check if the URL is a valid GitHub repository URL format."""
+    return bool(GITHUB_URL_PATTERN.match(url))
+
+def repo_exists(github_url: str, token: str) -> bool:
+    """Check if the GitHub repository exists and is accessible."""
+    owner_repo = "/".join(github_url.rstrip("/").split("/")[-2:])
+    api_url = f"https://api.github.com/repos/{owner_repo}"
+    headers = {"Authorization": f"token {token}"}
+    response = requests.get(api_url, headers=headers)
+    return response.status_code == 200
+
+# ---------------------- EXISTING FUNCTIONS ----------------------
 
 def extract_owner_and_repo(repo_link):
     """Extract owner and repo name from GitHub URL."""
@@ -46,10 +84,19 @@ def extract_repo_content(owner, repo):
         raise ValueError("GitHub token not found in environment variables.")
     
     g = Github(access_token)
-    repo_obj = g.get_repo(f'{owner}/{repo}')
+    try:
+        repo_obj = g.get_repo(f'{owner}/{repo}')
+    except Exception as e:
+        return {
+            "rejected": True,
+            "rejection_reason": f"Project rejected: Could not access repository. {str(e)}"
+        }
     
     if repo_obj.private:
-        raise ValueError(f'{owner}/{repo} is a private repo')
+        return {
+            "rejected": True,
+            "rejection_reason": f"Project rejected: {owner}/{repo} is a private repo"
+        }
     
     branch_ref = repo_obj.get_branch(branch)
     tree = repo_obj.get_git_tree(sha=branch_ref.commit.sha, recursive=True).tree
@@ -71,7 +118,6 @@ def extract_repo_content(owner, repo):
             "rejection_reason": "Project rejected: No README file was found in the repository. Please add a README and resubmit."
         }
     
-    # Heuristic: if content is < 20 characters or only contains a single heading, mark as empty
     lines = [line.strip() for line in readme_content.splitlines() if line.strip()]
     if len(readme_content) < 20 or (len(lines) == 1 and lines[0].startswith("#")):
         return {
