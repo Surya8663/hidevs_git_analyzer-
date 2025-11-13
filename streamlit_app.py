@@ -5,8 +5,8 @@ import json
 import re
 import requests
 from github import Github
-from langchain_community.document_loaders import GithubFileLoader
-from langchain_core.messages import HumanMessage, SystemMessage
+#from langchain_community.document_loaders import GithubFileLoader
+#from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 import logging
 from datetime import datetime
