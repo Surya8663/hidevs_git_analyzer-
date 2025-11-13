@@ -75,7 +75,7 @@ def call_gemini(prompt):
         st.error(f"Gemini API Error: {str(e)}")
         return None
 
- def check_available_models():
+def check_available_models():
     """Check which Gemini models are available with the current API key"""
     try:
         available_models = genai.list_models()
