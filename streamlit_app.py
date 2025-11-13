@@ -7,16 +7,7 @@ import requests
 from github import Github
 import google.generativeai as genai
 
-
-# Configure with explicit version
-genai.configure(
-    api_key=GEMINI_API_KEY,
-    client_options={
-        'api_endpoint': 'https://generativelanguage.googleapis.com/v1beta'  # or /v1
-    }
-)
-
-# Set page config
+# Set page config FIRST
 st.set_page_config(page_title="HiDevs GitHub Agent", layout="wide")
 st.title("HiDevs GitHub Repo Analyzer 🤖")
 st.markdown("Get an industry-level review of any public GitHub repository with career-focused insights.")
@@ -27,6 +18,7 @@ if 'analysis_result' not in st.session_state:
 if 'analysis_in_progress' not in st.session_state:
     st.session_state.analysis_in_progress = False
 
+# ========== LOAD ENVIRONMENT VARIABLES FIRST ==========
 # Load environment variables from Streamlit secrets
 try:
     GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
@@ -43,11 +35,16 @@ if not GITHUB_TOKEN:
     st.error("❌ GITHUB_TOKEN not found. Please check your environment variables.")
     st.stop()
 
-# Configure Gemini
-genai.configure(api_key=GEMINI_API_KEY)
+# ========== NOW CONFIGURE GEMINI ==========
+# Configure with explicit version
+genai.configure(
+    api_key=GEMINI_API_KEY,
+    client_options={
+        'api_endpoint': 'https://generativelanguage.googleapis.com/v1beta'  # or /v1
+    }
+)
 
 # Simple Gemini function with correct model names
-# In streamlit_app.py - Replace the call_gemini function
 def call_gemini(prompt):
     """Simple function to call Gemini API with correct model names"""
     try:
@@ -85,6 +82,21 @@ def check_available_models():
     except Exception as e:
         print(f"Error checking available models: {str(e)}")
         return []       
+
+# Temporary test function
+def test_gemini_connection():
+    """Test if Gemini API is working"""
+    try:
+        model = genai.GenerativeModel('gemini-pro')
+        response = model.generate_content("Say 'Hello World'")
+        print("Gemini test successful:", response.text)
+        return True
+    except Exception as e:
+        print("Gemini test failed:", str(e))
+        return False
+
+# Call this at startup
+test_gemini_connection()
 
 # Utility functions
 def clean_github_url(url: str) -> str:
@@ -295,20 +307,7 @@ def extract_json_from_response(response: str):
             "next_steps": ["Review the raw analysis above"]
         }
     }
-# Temporary test function
-def test_gemini_connection():
-    """Test if Gemini API is working"""
-    try:
-        model = genai.GenerativeModel('gemini-pro')
-        response = model.generate_content("Say 'Hello World'")
-        print("Gemini test successful:", response.text)
-        return True
-    except Exception as e:
-        print("Gemini test failed:", str(e))
-        return False
 
-# Call this at startup
-test_gemini_connection()
 # Main analysis function
 def analyze_repository(github_repo, github_project_name, eval_criteria, skills, career_path=None):
     """Main analysis function that runs entirely in Streamlit"""
