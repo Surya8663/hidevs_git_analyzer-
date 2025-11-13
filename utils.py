@@ -18,6 +18,9 @@ from prompt import (
 # Load environment variables
 load_dotenv()
 
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 # Initialize LLM instances
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI
@@ -154,12 +157,13 @@ def extract_repo_content(owner, repo):
         "codebase": repo_structure + repo_contents
     }
 
-def validate_project_alignment(project_name, eval_criteria, skills, codebase):
+def validate_project_alignment(github_project_name, eval_criteria, skills, codebase, career_path=None):
     """Validate if the project claims align with codebase."""
     validation_prompt = VALIDATION_PROMPT_TEMPLATE.format(
-        project_name=project_name,
+        github_project_name=github_project_name,
         eval_criteria=eval_criteria,
         skills_gained=skills,
+        career_path=career_path or "Not specified",
         codebase=codebase
     )
     
@@ -183,23 +187,24 @@ def validate_project_alignment(project_name, eval_criteria, skills, codebase):
             "rejection_reason": "Project rejected: The validator response did not contain a clear VALID or INVALID determination."
         }
 
-def generate_initial_report(github_repo_link, project_name, evaluation_criterias, skills_to_be_assessed, full_context):
+def generate_initial_report(github_repo_link, github_project_name, evaluation_criterias, skills_to_be_assessed, full_context, career_path=None):
     """Generate initial repository analysis report."""
     sys_msg = SystemMessage(content=INITIAL_REPORT_SYSTEM_PROMPT.format(
-        project_name=project_name,
+        github_project_name=github_project_name,
         full_context=full_context,
         evaluation_criterias=evaluation_criterias,
         skills_to_be_assessed=skills_to_be_assessed,
+        career_path=career_path or "Not specified",
         github_repo_link=github_repo_link
     ))
     
-    query = f"github_repo_link={github_repo_link} evaluation_criterias={evaluation_criterias} skills_to_be_assessed={skills_to_be_assessed}"
+    query = f"github_repo_link={github_repo_link} evaluation_criterias={evaluation_criterias} skills_to_be_assessed={skills_to_be_assessed} career_path={career_path or 'Not specified'}"
     message = HumanMessage(content=query)
     
     result = eval_llm.invoke([sys_msg, message])
     return result.content  # Return raw content without JSON validation
 
-def review_report(github_repo_link, evaluation_criterias, skills_to_be_assessed, full_context, report):
+def review_report(github_repo_link, github_project_name, evaluation_criterias, skills_to_be_assessed, full_context, report, career_path=None):
     """Review the generated report."""
     review_prompt = REVIEW_PROMPT_TEMPLATE.format(
         report=report,
@@ -211,19 +216,22 @@ def review_report(github_repo_link, evaluation_criterias, skills_to_be_assessed,
     review_result = critique_llm.invoke(review_prompt)
     return review_result.content  # Return raw content without JSON validation
 
-def revise_report(github_repo_link, project_name, evaluation_criterias, skills_to_be_assessed, full_context, prior_report, report_feedback):
+def revise_report(github_repo_link, github_project_name, evaluation_criterias, skills_to_be_assessed, full_context, prior_report, report_feedback, career_path=None):
     """Revise the report based on feedback."""
     sys_msg = SystemMessage(content=REVISED_REPORT_SYSTEM_PROMPT.format(
-        project_name=project_name,
+        github_project_name=github_project_name,
         evaluation_criterias=evaluation_criterias,
         skills_to_be_assessed=skills_to_be_assessed,
+        career_path=career_path or "Not specified",
         github_repo_link=github_repo_link
     ))
     
     query = REVISED_REPORT_PROMPT_TEMPLATE.format(
         github_repo_link=github_repo_link,
+        github_project_name=github_project_name,
         evaluation_criterias=evaluation_criterias,
         skills_to_be_assessed=skills_to_be_assessed,
+        career_path=career_path or "Not specified",
         prior_report=prior_report,
         report_feedback=report_feedback,
         full_context=full_context
@@ -232,7 +240,6 @@ def revise_report(github_repo_link, project_name, evaluation_criterias, skills_t
     message = HumanMessage(content=query)
     final_result = eval_llm.invoke([sys_msg, message])
     
-   
     try:
         # First try to extract JSON
         json_content = extract_json_from_llm_response(final_result.content)
@@ -245,9 +252,6 @@ def revise_report(github_repo_link, project_name, evaluation_criterias, skills_t
         
     except ValueError as e:
         raise ValueError(f"Final report validation failed: {str(e)}")
-
-import json
-import re
 
 def extract_json_from_llm_response(response: str):
     """
@@ -341,3 +345,207 @@ def fix_malformed_json(json_str: str) -> str:
             # Provide more context in the error message
             error_context = fixed[max(0, e.pos-50):min(len(fixed), e.pos+50)]
             raise ValueError(f"Could not fix malformed JSON near: ...{error_context}... \nError: {str(e)}")
+
+def generate_career_specific_insights(github_project_name, github_repo_link, codebase, career_path, skills_to_be_assessed):
+    """
+    Generate career-specific insights for the project analysis.
+    This function can be called to get additional career-focused analysis.
+    """
+    from prompt import CAREER_SPECIFIC_INSIGHTS_TEMPLATE
+    
+    career_prompt = CAREER_SPECIFIC_INSIGHTS_TEMPLATE.format(
+        career_path=career_path,
+        github_project_name=github_project_name,
+        github_repo_link=github_repo_link,
+        skills_to_be_assessed=skills_to_be_assessed
+    )
+    
+    # Combine with codebase context
+    full_prompt = f"{career_prompt}\n\nCODEBASE CONTEXT:\n{codebase}"
+    
+    try:
+        career_insights = eval_llm.invoke(full_prompt).content
+        return career_insights
+    except Exception as e:
+        logger.error(f"Error generating career insights: {str(e)}")
+        return f"Career insights generation failed: {str(e)}"
+
+def validate_career_path(career_path):
+    """
+    Validate if the provided career path is supported and provide suggestions if needed.
+    """
+    common_career_paths = [
+        "Machine Learning Engineer", "Data Scientist", "Software Engineer", 
+        "Full Stack Developer", "Frontend Developer", "Backend Developer",
+        "DevOps Engineer", "Data Engineer", "Mobile Developer", "AI Engineer",
+        "Cloud Engineer", "Security Engineer", "QA Engineer", "Product Manager",
+        "Technical Lead", "System Architect"
+    ]
+    
+    if not career_path:
+        return {
+            "valid": True,
+            "message": "No career path specified - analysis will be general",
+            "suggestions": common_career_paths
+        }
+    
+    # Check if career path is in common list (case-insensitive)
+    career_lower = career_path.lower()
+    matched_careers = [career for career in common_career_paths if career_lower in career.lower()]
+    
+    if matched_careers:
+        return {
+            "valid": True,
+            "message": f"Career path '{career_path}' is recognized",
+            "matched_careers": matched_careers
+        }
+    else:
+        return {
+            "valid": True,  # Still valid, just not in common list
+            "message": f"Career path '{career_path}' is not in common list but will be used for analysis",
+            "suggestions": common_career_paths
+        }
+
+def enhance_report_with_career_insights(report_dict, career_insights):
+    """
+    Enhance the existing report dictionary with additional career insights.
+    """
+    if not career_insights or "report" not in report_dict:
+        return report_dict
+    
+    # Add career insights as a separate section
+    if "career_analysis" not in report_dict["report"]:
+        report_dict["report"]["career_analysis"] = {}
+    
+    report_dict["report"]["career_analysis"]["additional_insights"] = career_insights
+    
+    return report_dict
+
+def calculate_career_relevance_metrics(tech_stack, project_complexity, skills_demonstrated, target_career):
+    """
+    Calculate career relevance metrics based on project characteristics.
+    This is a helper function for career analysis.
+    """
+    # Base metrics (these would be enhanced with more sophisticated analysis)
+    metrics = {
+        "technical_alignment": 0,
+        "skill_coverage": 0,
+        "project_scope": 0,
+        "industry_relevance": 0,
+        "portfolio_impact": 0
+    }
+    
+    # Common career-tech mappings (simplified)
+    career_tech_mappings = {
+        "Machine Learning Engineer": ["python", "tensorflow", "pytorch", "scikit-learn", "keras", "pandas", "numpy"],
+        "Data Scientist": ["python", "r", "sql", "pandas", "numpy", "matplotlib", "seaborn"],
+        "Software Engineer": ["java", "python", "javascript", "c++", "c#", "go", "rust"],
+        "Full Stack Developer": ["javascript", "react", "angular", "vue", "node.js", "python", "django", "flask"],
+        "Frontend Developer": ["javascript", "typescript", "react", "angular", "vue", "html", "css"],
+        "Backend Developer": ["java", "python", "node.js", "c#", "go", "sql", "nosql"],
+        "DevOps Engineer": ["docker", "kubernetes", "aws", "azure", "gcp", "jenkins", "terraform"],
+        "Data Engineer": ["python", "sql", "spark", "hadoop", "airflow", "kafka", "aws"]
+    }
+    
+    # Calculate technical alignment
+    target_techs = career_tech_mappings.get(target_career, [])
+    tech_stack_lower = [tech.lower() for tech in tech_stack]
+    
+    matching_techs = [tech for tech in target_techs if tech in ' '.join(tech_stack_lower).lower()]
+    metrics["technical_alignment"] = min(100, len(matching_techs) / max(1, len(target_techs)) * 100)
+    
+    # Calculate skill coverage (simplified)
+    metrics["skill_coverage"] = min(100, len(skills_demonstrated) * 10)
+    
+    # Project scope assessment
+    if project_complexity == "high":
+        metrics["project_scope"] = 90
+    elif project_complexity == "medium":
+        metrics["project_scope"] = 70
+    else:
+        metrics["project_scope"] = 50
+    
+    # Industry relevance (placeholder - would be enhanced with real data)
+    metrics["industry_relevance"] = 75
+    
+    # Portfolio impact
+    metrics["portfolio_impact"] = (metrics["technical_alignment"] + metrics["skill_coverage"] + metrics["project_scope"]) / 3
+    
+    return metrics
+
+# Import logger if not already imported
+try:
+    from log_utils import logger
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
+
+# Career analysis helper functions
+def analyze_tech_stack_for_career(tech_stack, career_path):
+    """
+    Analyze how well the technology stack aligns with the target career path.
+    """
+    # Industry-standard tech stacks for different careers
+    industry_standards = {
+        "Machine Learning Engineer": {
+            "core": ["Python", "TensorFlow", "PyTorch", "scikit-learn"],
+            "data": ["Pandas", "NumPy", "SQL", "Spark"],
+            "deployment": ["Docker", "Kubernetes", "FastAPI", "Flask"],
+            "cloud": ["AWS", "GCP", "Azure", "MLflow"]
+        },
+        "Data Scientist": {
+            "core": ["Python", "R", "SQL", "Statistics"],
+            "analysis": ["Pandas", "NumPy", "Jupyter", "Matplotlib"],
+            "ml": ["scikit-learn", "TensorFlow", "PyTorch", "XGBoost"],
+            "visualization": ["Tableau", "PowerBI", "Seaborn", "Plotly"]
+        },
+        "Full Stack Developer": {
+            "frontend": ["JavaScript", "React", "Vue", "Angular", "HTML5", "CSS3"],
+            "backend": ["Node.js", "Python", "Java", "C#", "Go"],
+            "database": ["SQL", "MongoDB", "PostgreSQL", "Redis"],
+            "devops": ["Docker", "Git", "CI/CD", "AWS"]
+        },
+        "Software Engineer": {
+            "languages": ["Java", "Python", "C++", "C#", "Go", "Rust"],
+            "concepts": ["OOP", "Design Patterns", "Data Structures", "Algorithms"],
+            "tools": ["Git", "Docker", "Jenkins", "JIRA"],
+            "testing": ["Unit Testing", "Integration Testing", "TDD"]
+        }
+    }
+    
+    career_standards = industry_standards.get(career_path, {})
+    
+    if not career_standards:
+        return {"alignment": 50, "matched_technologies": [], "missing_core": []}
+    
+    # Calculate alignment
+    matched_techs = []
+    missing_core = []
+    
+    for category, expected_techs in career_standards.items():
+        for tech in expected_techs:
+            # Check if technology is in project stack (case-insensitive)
+            tech_lower = tech.lower()
+            project_techs_lower = [t.lower() for t in tech_stack]
+            
+            # Check for partial matches (e.g., "react" in "react.js")
+            matched = any(tech_lower in project_tech or project_tech in tech_lower 
+                         for project_tech in project_techs_lower)
+            
+            if matched:
+                matched_techs.append(tech)
+            elif category == "core":
+                missing_core.append(tech)
+    
+    total_expected = sum(len(techs) for techs in career_standards.values())
+    alignment_score = (len(matched_techs) / total_expected * 100) if total_expected > 0 else 0
+    
+    return {
+        "alignment_score": min(100, alignment_score),
+        "matched_technologies": matched_techs,
+        "missing_core_technologies": missing_core,
+        "coverage_by_category": {
+            category: len([tech for tech in techs if tech in matched_techs]) / len(techs) * 100
+            for category, techs in career_standards.items()
+        }
+    }

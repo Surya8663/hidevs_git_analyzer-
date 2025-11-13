@@ -8,6 +8,7 @@ class RepositoryAnalysisRequest(BaseModel):
     github_project_name: str
     eval_criteria: str
     skills: str
+    career_path: Optional[str] = None  # New field for career path
 
 
 class RepositoryAnalysisResponse(BaseModel):
