@@ -7,6 +7,15 @@ import requests
 from github import Github
 import google.generativeai as genai
 
+
+# Configure with explicit version
+genai.configure(
+    api_key=GEMINI_API_KEY,
+    client_options={
+        'api_endpoint': 'https://generativelanguage.googleapis.com/v1beta'  # or /v1
+    }
+)
+
 # Set page config
 st.set_page_config(page_title="HiDevs GitHub Agent", layout="wide")
 st.title("HiDevs GitHub Repo Analyzer 🤖")
@@ -26,20 +35,56 @@ except KeyError:
     st.error("⚠️ Please add GITHUB_TOKEN and GEMINI_API_KEY to Streamlit secrets")
     st.stop()
 
+if not GEMINI_API_KEY:
+    st.error("❌ GEMINI_API_KEY not found. Please check your environment variables.")
+    st.stop()
+
+if not GITHUB_TOKEN:
+    st.error("❌ GITHUB_TOKEN not found. Please check your environment variables.")
+    st.stop()
+
 # Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Simple Gemini function with correct model names
+# In streamlit_app.py - Replace the call_gemini function
 def call_gemini(prompt):
-    """Simple function to call Gemini API"""
+    """Simple function to call Gemini API with correct model names"""
     try:
-        # Use correct model names - these are the available ones
-        model = genai.GenerativeModel('gemini-pro')
-        response = model.generate_content(prompt)
-        return response.text
+        # Try the latest model names first
+        available_models = [
+            'gemini-1.5-pro',
+            'gemini-1.5-flash', 
+            'gemini-pro',
+            'models/gemini-pro'  # Some versions need this format
+        ]
+        
+        for model_name in available_models:
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                return response.text
+            except Exception as e:
+                print(f"Model {model_name} failed: {str(e)}")
+                continue
+        
+        # If all models fail, raise error
+        raise Exception("All Gemini models failed. Please check your API key and model availability.")
+        
     except Exception as e:
         st.error(f"Gemini API Error: {str(e)}")
         return None
+
+ def check_available_models():
+    """Check which Gemini models are available with the current API key"""
+    try:
+        available_models = genai.list_models()
+        model_names = [model.name for model in available_models]
+        print("Available models:", model_names)
+        return model_names
+    except Exception as e:
+        print(f"Error checking available models: {str(e)}")
+        return []       
 
 # Utility functions
 def clean_github_url(url: str) -> str:
@@ -250,7 +295,20 @@ def extract_json_from_response(response: str):
             "next_steps": ["Review the raw analysis above"]
         }
     }
+# Temporary test function
+def test_gemini_connection():
+    """Test if Gemini API is working"""
+    try:
+        model = genai.GenerativeModel('gemini-pro')
+        response = model.generate_content("Say 'Hello World'")
+        print("Gemini test successful:", response.text)
+        return True
+    except Exception as e:
+        print("Gemini test failed:", str(e))
+        return False
 
+# Call this at startup
+test_gemini_connection()
 # Main analysis function
 def analyze_repository(github_repo, github_project_name, eval_criteria, skills, career_path=None):
     """Main analysis function that runs entirely in Streamlit"""
