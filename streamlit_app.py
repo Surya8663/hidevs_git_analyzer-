@@ -153,9 +153,19 @@ def call_gemini(prompt):
     """Simple function to call Gemini API"""
     import google.generativeai as genai
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-pro')
-    response = model.generate_content(prompt)
-    return response.text        
+    
+    # Try different model names
+    model_names = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+    
+    for model_name in model_names:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            continue
+    
+    return "Error: All Gemini models failed. Please check your API key and model availability."      
 
 def validate_project_alignment(github_project_name, eval_criteria, skills, codebase, career_path=None):
     """Validate if project claims align with codebase"""
