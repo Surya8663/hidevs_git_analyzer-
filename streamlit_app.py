@@ -36,24 +36,40 @@ if not GITHUB_TOKEN:
     st.stop()
 
 # ========== NOW CONFIGURE GEMINI ==========
-# Configure with explicit version
-genai.configure(
-    api_key=GEMINI_API_KEY,
-    client_options={
-        'api_endpoint': 'https://generativelanguage.googleapis.com/v1beta'  # or /v1
-    }
-)
+# Configure Gemini
+try:
+    genai.configure(api_key=GEMINI_API_KEY)
+    st.success("✅ Gemini configured successfully")
+except Exception as e:
+    st.error(f"❌ Gemini configuration failed: {str(e)}")
+    st.stop()
 
-# Simple Gemini function with correct model names
+def validate_gemini_api_key():
+    """Validate the Gemini API key"""
+    try:
+        # Try to list models to validate API key
+        models = genai.list_models()
+        available_models = [model.name for model in models]
+        st.success("✅ Gemini API key is valid!")
+        st.write(f"📋 Available models: {available_models}")
+        return True
+    except Exception as e:
+        st.error(f"❌ Invalid Gemini API key: {str(e)}")
+        st.error("Please check your GEMINI_API_KEY in Streamlit secrets")
+        return False
+
+# Validate API key on startup
+if not validate_gemini_api_key():
+    st.stop()
+
 def call_gemini(prompt):
     """Simple function to call Gemini API with correct model names"""
     try:
-        # Try the latest model names first
+        # Try the most common model names
         available_models = [
             'gemini-1.5-pro',
             'gemini-1.5-flash', 
-            'gemini-pro',
-            'models/gemini-pro'  # Some versions need this format
+            'gemini-pro'
         ]
         
         for model_name in available_models:
@@ -65,38 +81,18 @@ def call_gemini(prompt):
                 print(f"Model {model_name} failed: {str(e)}")
                 continue
         
-        # If all models fail, raise error
-        raise Exception("All Gemini models failed. Please check your API key and model availability.")
+        # If all models fail, try the full path
+        try:
+            model = genai.GenerativeModel('models/gemini-pro')
+            response = model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            st.error(f"❌ All Gemini models failed: {str(e)}")
+            return None
         
     except Exception as e:
-        st.error(f"Gemini API Error: {str(e)}")
+        st.error(f"❌ Gemini API Error: {str(e)}")
         return None
-
-def check_available_models():
-    """Check which Gemini models are available with the current API key"""
-    try:
-        available_models = genai.list_models()
-        model_names = [model.name for model in available_models]
-        print("Available models:", model_names)
-        return model_names
-    except Exception as e:
-        print(f"Error checking available models: {str(e)}")
-        return []       
-
-# Temporary test function
-def test_gemini_connection():
-    """Test if Gemini API is working"""
-    try:
-        model = genai.GenerativeModel('gemini-pro')
-        response = model.generate_content("Say 'Hello World'")
-        print("Gemini test successful:", response.text)
-        return True
-    except Exception as e:
-        print("Gemini test failed:", str(e))
-        return False
-
-# Call this at startup
-test_gemini_connection()
 
 # Utility functions
 def clean_github_url(url: str) -> str:
