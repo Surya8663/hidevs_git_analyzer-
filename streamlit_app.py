@@ -75,7 +75,7 @@ def call_gemini(prompt):
     response = model.generate_content(prompt)
     return response.text
 
-    
+
 def clean_github_url(url: str) -> str:
     url = url.strip()
     if url.endswith(".git"):
@@ -96,7 +96,7 @@ def extract_owner_and_repo(repo_link):
     return owner, repo
 
 def extract_repo_content(owner, repo):
-    """Extract repository content using GitHub API"""
+    """Extract repository content using simple GitHub API calls"""
     try:
         g = Github(GITHUB_TOKEN)
         repo_obj = g.get_repo(f'{owner}/{repo}')
@@ -120,32 +120,45 @@ def extract_repo_content(owner, repo):
         if len(readme_content) < 20:
             return {"rejected": True, "rejection_reason": "README is too short or uninformative"}
         
-        # Load repository files
-        loader = GithubFileLoader(
-            repo=f'{owner}/{repo}',
-            access_token=GITHUB_TOKEN,
-            branch="main",
-            github_api_url="https://api.github.com",
-            file_filter=lambda file_path: file_path.endswith(('.py', '.js', '.ts', '.java', '.md', '.json', '.yml', '.yaml', '.txt'))
-        )
-        
-        documents = loader.load()
-        repo_contents = "\nRepository Contents:\n"
-        for doc in documents:
-            repo_contents += f"\nFile: {doc.metadata['source']}\n{doc.page_content}\n{'-'*80}\n"
+        # Get basic file structure (simplified without GithubFileLoader)
+        repo_contents = "Repository Structure:\n"
+        try:
+            contents = repo_obj.get_contents("")
+            for content_file in contents:
+                if content_file.type == "file":
+                    repo_contents += f"File: {content_file.path}\n"
+                    # Get content of key files
+                    if content_file.path.endswith(('.py', '.js', '.md', '.json', '.yml', '.yaml')):
+                        try:
+                            file_content = repo_obj.get_contents(content_file.path)
+                            repo_contents += f"Content:\n{file_content.decoded_content.decode()}\n"
+                        except:
+                            repo_contents += "[Content not accessible]\n"
+                    repo_contents += "-" * 50 + "\n"
+                elif content_file.type == "dir":
+                    repo_contents += f"Directory: {content_file.path}/\n"
+        except Exception as e:
+            repo_contents += f"Error reading repository structure: {str(e)}\n"
         
         return {
             "rejected": False,
-            "codebase": f"README:\n{readme_content}\n{repo_contents}"
+            "codebase": f"README:\n{readme_content}\n\n{repo_contents}"
         }
         
     except Exception as e:
         return {"rejected": True, "rejection_reason": f"Could not access repository: {str(e)}"}
 
+
+def call_gemini(prompt):
+    """Simple function to call Gemini API"""
+    import google.generativeai as genai
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-pro')
+    response = model.generate_content(prompt)
+    return response.text        
+
 def validate_project_alignment(github_project_name, eval_criteria, skills, codebase, career_path=None):
     """Validate if project claims align with codebase"""
-    eval_llm, _, validator_llm = get_llms()
-    
     validation_prompt = VALIDATION_PROMPT_TEMPLATE.format(
         github_project_name=github_project_name,
         eval_criteria=eval_criteria,
@@ -154,7 +167,7 @@ def validate_project_alignment(github_project_name, eval_criteria, skills, codeb
         codebase=codebase
     )
     
-    validation_result = validator_llm.invoke(validation_prompt).content.strip()
+    validation_result = call_gemini(validation_prompt)
     
     if "INVALID:" in validation_result:
         reason = validation_result.split("INVALID:", 1)[1].strip()
@@ -166,22 +179,21 @@ def validate_project_alignment(github_project_name, eval_criteria, skills, codeb
 
 def generate_initial_report(github_repo_link, github_project_name, evaluation_criterias, skills_to_be_assessed, full_context, career_path=None):
     """Generate initial analysis report"""
-    eval_llm, _, _ = get_llms()
-    
-    sys_msg = SystemMessage(content=INITIAL_REPORT_SYSTEM_PROMPT.format(
+    prompt = f"""
+    {INITIAL_REPORT_SYSTEM_PROMPT.format(
         github_project_name=github_project_name,
         github_repo_link=github_repo_link,
         evaluation_criterias=evaluation_criterias,
         skills_to_be_assessed=skills_to_be_assessed,
         career_path=career_path or "Not specified",
         full_context=full_context
-    ))
+    )}
     
-    query = f"Analyze this repository and provide a comprehensive report in JSON format."
-    message = HumanMessage(content=query)
+    Please analyze this repository and provide a comprehensive JSON report.
+    """
     
-    result = eval_llm.invoke([sys_msg, message])
-    return result.content
+    result = call_gemini(prompt)
+    return result
 
 def extract_json_from_response(response: str):
     """Extract JSON from LLM response"""
