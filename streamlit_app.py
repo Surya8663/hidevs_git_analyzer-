@@ -7,7 +7,8 @@ import requests
 from github import Github
 #from langchain_community.document_loaders import GithubFileLoader
 #from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+#from langchain_google_genai import ChatGoogleGenerativeAI
+import google.generativeai as genai
 import logging
 from datetime import datetime
 
@@ -67,6 +68,14 @@ Return valid JSON with: project_summary, evaluation_criteria, skill_ratings, car
 """
 
 # Utility functions
+# Simple Gemini function instead of LangChain
+def call_gemini(prompt):
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-pro')
+    response = model.generate_content(prompt)
+    return response.text
+
+    
 def clean_github_url(url: str) -> str:
     url = url.strip()
     if url.endswith(".git"):
