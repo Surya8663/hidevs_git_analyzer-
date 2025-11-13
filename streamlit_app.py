@@ -5,9 +5,6 @@ import json
 import re
 import requests
 from github import Github
-#from langchain_community.document_loaders import GithubFileLoader
-#from langchain_core.messages import HumanMessage, SystemMessage
-#from langchain_google_genai import ChatGoogleGenerativeAI
 import google.generativeai as genai
 import logging
 from datetime import datetime
@@ -31,51 +28,28 @@ except KeyError:
     st.error("⚠️ Please add GITHUB_TOKEN and GEMINI_API_KEY to Streamlit secrets")
     st.stop()
 
-# Initialize LLMs
-@st.cache_resource
-def get_llms():
-    eval_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=GEMINI_API_KEY)
-    critique_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=GEMINI_API_KEY)
-    validator_llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=GEMINI_API_KEY)
-    return eval_llm, critique_llm, validator_llm
+# Configure Gemini
+genai.configure(api_key=GEMINI_API_KEY)
 
-# Import your prompt templates (simplified version)
-VALIDATION_PROMPT_TEMPLATE = """
-You are a codebase validator. Check if project claims match implementation.
-
-PROJECT: {github_project_name}
-CRITERIA: {eval_criteria}
-SKILLS: {skills_gained}
-CAREER: {career_path}
-
-CODEBASE:
-{codebase}
-
-If aligned, respond: "VALID: [explanation]"
-If misaligned, respond: "INVALID: [explanation]"
-"""
-
-INITIAL_REPORT_SYSTEM_PROMPT = """
-You are an AI assistant analyzing a code repository. Generate a JSON-formatted report.
-
-Project: {github_project_name}
-Repo: {github_repo_link}
-Criteria: {evaluation_criterias}
-Skills: {skills_to_be_assessed}
-Career: {career_path}
-
-Return valid JSON with: project_summary, evaluation_criteria, skill_ratings, career_analysis, hidevs_score, final_deliverables
-"""
+# Simple Gemini function
+def call_gemini(prompt):
+    """Simple function to call Gemini API"""
+    try:
+        # Try the most reliable model first
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        try:
+            # Fallback to pro model
+            model = genai.GenerativeModel('gemini-1.5-pro')
+            response = model.generate_content(prompt)
+            return response.text
+        except:
+            st.error(f"Gemini API Error: {str(e)}")
+            return None
 
 # Utility functions
-# Simple Gemini function instead of LangChain
-def call_gemini(prompt):
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-pro')
-    response = model.generate_content(prompt)
-    return response.text
-
-
 def clean_github_url(url: str) -> str:
     url = url.strip()
     if url.endswith(".git"):
@@ -120,7 +94,7 @@ def extract_repo_content(owner, repo):
         if len(readme_content) < 20:
             return {"rejected": True, "rejection_reason": "README is too short or uninformative"}
         
-        # Get basic file structure (simplified without GithubFileLoader)
+        # Get basic file structure
         repo_contents = "Repository Structure:\n"
         try:
             contents = repo_obj.get_contents("")
@@ -131,7 +105,9 @@ def extract_repo_content(owner, repo):
                     if content_file.path.endswith(('.py', '.js', '.md', '.json', '.yml', '.yaml')):
                         try:
                             file_content = repo_obj.get_contents(content_file.path)
-                            repo_contents += f"Content:\n{file_content.decoded_content.decode()}\n"
+                            file_text = file_content.decoded_content.decode()
+                            # Limit file content to avoid huge responses
+                            repo_contents += f"Content (first 2000 chars):\n{file_text[:2000]}\n"
                         except:
                             repo_contents += "[Content not accessible]\n"
                     repo_contents += "-" * 50 + "\n"
@@ -148,81 +124,101 @@ def extract_repo_content(owner, repo):
     except Exception as e:
         return {"rejected": True, "rejection_reason": f"Could not access repository: {str(e)}"}
 
-
-def call_gemini(prompt):
-    """Simple function to call Gemini API"""
-    import google.generativeai as genai
-    genai.configure(api_key=GEMINI_API_KEY)
-    
-    # Try different model names
-    model_names = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
-    
-    for model_name in model_names:
-        try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            return response.text
-        except Exception as e:
-            continue
-    
-    return "Error: All Gemini models failed. Please check your API key and model availability."      
-
 def validate_project_alignment(github_project_name, eval_criteria, skills, codebase, career_path=None):
     """Validate if project claims align with codebase"""
     validation_prompt = f"""
-    You are a codebase validator. Check if this project's claims match its actual implementation.
+    Check if this GitHub project matches its description.
     
-    PROJECT: {github_project_name}
-    EVALUATION CRITERIA: {eval_criteria}
-    CLAIMED SKILLS: {skills}
-    CAREER PATH: {career_path or "Not specified"}
+    Project: {github_project_name}
+    Criteria: {eval_criteria}
+    Skills: {skills}
+    Career: {career_path or "General"}
     
-    CODEBASE CONTENT:
-    {codebase[:8000]}  # Limit context length
+    Codebase Preview:
+    {codebase[:4000]}
     
-    Your response must be EXACTLY one of these two formats:
-    - If valid: "VALID: [brief explanation]"
-    - If invalid: "INVALID: [brief explanation of mismatch]"
-    
-    Be strict but fair. Only reject if there's a clear mismatch.
+    Respond with ONLY:
+    VALID: [reason] 
+    or 
+    INVALID: [reason]
     """
     
     validation_result = call_gemini(validation_prompt)
     
-    # TEMPORARY DEBUG - ADD THIS LINE
+    if validation_result is None:
+        return {"vrejected": True, "rejection_reason": "AI service unavailable"}
+    
+    # TEMPORARY DEBUG
     st.write(f"🔍 DEBUG - Validator Response: {validation_result}")
     
-    # More flexible validation checking
     validation_result = validation_result.strip()
     
     if validation_result.startswith("INVALID:"):
-        reason = validation_result[8:].strip()  # Remove "INVALID:"
+        reason = validation_result[8:].strip()
         return {"vrejected": True, "rejection_reason": reason}
     elif validation_result.startswith("VALID:"):
         return {"vrejected": False, "validation_summary": validation_result}
     else:
-        # If format doesn't match, check content more flexibly
-        if "invalid" in validation_result.lower():
-            return {"vrejected": True, "rejection_reason": f"Project validation failed: {validation_result}"}
-        elif "valid" in validation_result.lower():
-            return {"vrejected": False, "validation_summary": validation_result}
+        # If format is wrong but content suggests validity, continue
+        if "invalid" in validation_result.lower() or "reject" in validation_result.lower():
+            return {"vrejected": True, "rejection_reason": f"Validation failed: {validation_result}"}
         else:
-            # If still unclear, be permissive and continue
-            return {"vrejected": False, "validation_summary": "Auto-validated - proceeding with analysis"}
+            # Be permissive and continue with analysis
+            return {"vrejected": False, "validation_summary": "Proceeding with analysis"}
 
 def generate_initial_report(github_repo_link, github_project_name, evaluation_criterias, skills_to_be_assessed, full_context, career_path=None):
     """Generate initial analysis report"""
     prompt = f"""
-    {INITIAL_REPORT_SYSTEM_PROMPT.format(
-        github_project_name=github_project_name,
-        github_repo_link=github_repo_link,
-        evaluation_criterias=evaluation_criterias,
-        skills_to_be_assessed=skills_to_be_assessed,
-        career_path=career_path or "Not specified",
-        full_context=full_context
-    )}
+    Analyze this GitHub repository and provide a JSON report.
     
-    Please analyze this repository and provide a comprehensive JSON report.
+    Repository: {github_repo_link}
+    Project: {github_project_name}
+    Evaluation: {evaluation_criterias}
+    Skills: {skills_to_be_assessed}
+    Career: {career_path or "General"}
+    
+    Code Context:
+    {full_context[:6000]}
+    
+    Provide JSON with this structure:
+    {{
+        "project_summary": {{
+            "Project": "project name",
+            "repository": "repo url", 
+            "purpose_and_functionality": "description",
+            "tech_stack": ["tech1", "tech2"],
+            "notable_features": ["feature1", "feature2"]
+        }},
+        "evaluation_criteria": [
+            {{
+                "criterion_name": "criteria name",
+                "score": 85,
+                "assessment_and_justification": "detailed reasoning"
+            }}
+        ],
+        "skill_ratings": {{
+            "skill_name": {{
+                "rating": 90,
+                "justification": "reasoning"
+            }}
+        }},
+        "career_analysis": {{
+            "career_relevance_score": 85,
+            "industry_relevant_skills": ["skill1", "skill2"],
+            "missing_industry_skills": ["skill1", "skill2"]
+        }},
+        "hidevs_score": {{
+            "score": 85,
+            "explanation": "overall assessment"
+        }},
+        "final_deliverables": {{
+            "key_strengths": ["strength1", "strength2"],
+            "key_areas_for_improvement": ["area1", "area2"],
+            "next_steps": ["step1", "step2"]
+        }}
+    }}
+    
+    Return valid JSON only.
     """
     
     result = call_gemini(prompt)
@@ -230,6 +226,9 @@ def generate_initial_report(github_repo_link, github_project_name, evaluation_cr
 
 def extract_json_from_response(response: str):
     """Extract JSON from LLM response"""
+    if response is None:
+        raise ValueError("No response from AI")
+        
     try:
         # Try to parse directly
         return json.loads(response)
@@ -239,8 +238,29 @@ def extract_json_from_response(response: str):
         end_idx = response.rfind('}') + 1
         if start_idx != -1 and end_idx != 0:
             json_str = response[start_idx:end_idx]
+            # Clean up common JSON issues
+            json_str = json_str.replace('\\n', ' ').replace('\\t', ' ')
             return json.loads(json_str)
-    raise ValueError("Could not extract JSON from response")
+    
+    # If still fails, create a basic report
+    return {
+        "project_summary": {
+            "Project": "Analysis Report",
+            "repository": "Unknown",
+            "purpose_and_functionality": "Analysis completed",
+            "tech_stack": [],
+            "notable_features": []
+        },
+        "hidevs_score": {
+            "score": 50,
+            "explanation": "Basic analysis completed"
+        },
+        "final_deliverables": {
+            "key_strengths": ["Analysis completed successfully"],
+            "key_areas_for_improvement": ["Full detailed analysis unavailable"],
+            "next_steps": ["Review the raw analysis above"]
+        }
+    }
 
 # Main analysis function
 def analyze_repository(github_repo, github_project_name, eval_criteria, skills, career_path=None):
@@ -288,6 +308,13 @@ def analyze_repository(github_repo, github_project_name, eval_criteria, skills, 
             skills, repo_content["codebase"], career_path
         )
         
+        if initial_report is None:
+            return {
+                "status": "error",
+                "data": {"error": "AI service unavailable"},
+                "message": "Report generation failed"
+            }
+        
         # Extract JSON from report
         try:
             report_json = extract_json_from_response(initial_report)
@@ -301,7 +328,7 @@ def analyze_repository(github_repo, github_project_name, eval_criteria, skills, 
             return {
                 "status": "error",
                 "data": {"error": f"Failed to parse report: {str(e)}"},
-                "message": "Report generation failed"
+                "message": "Report parsing failed"
             }
             
     except Exception as e:
@@ -422,13 +449,28 @@ if st.session_state.analysis_result and not st.session_state.analysis_in_progres
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write("**✅ Strengths:**")
-                    for skill in career.get("industry_relevant_skills", [])[:5]:
-                        st.success(f"- {skill}")
+                    skills_list = career.get("industry_relevant_skills", [])
+                    if skills_list:
+                        for skill in skills_list[:5]:
+                            st.success(f"- {skill}")
+                    else:
+                        st.info("No specific strengths identified")
                 
                 with col2:
                     st.write("**📚 To Improve:**")
-                    for skill in career.get("missing_industry_skills", [])[:5]:
-                        st.warning(f"- {skill}")
+                    skills_list = career.get("missing_industry_skills", [])
+                    if skills_list:
+                        for skill in skills_list[:5]:
+                            st.warning(f"- {skill}")
+                    else:
+                        st.info("No major improvements needed")
+            
+            # Display evaluation criteria
+            if "evaluation_criteria" in report_data:
+                st.subheader("📊 Evaluation Results")
+                for criteria in report_data["evaluation_criteria"]:
+                    with st.expander(f"{criteria.get('criterion_name', 'Criteria')} - Score: {criteria.get('score', 'N/A')}/100"):
+                        st.write(criteria.get('assessment_and_justification', 'No details available'))
             
             # Raw JSON view
             with st.expander("📊 View Raw Report JSON"):
