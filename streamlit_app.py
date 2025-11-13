@@ -6,8 +6,6 @@ import re
 import requests
 from github import Github
 import google.generativeai as genai
-import logging
-from datetime import datetime
 
 # Set page config
 st.set_page_config(page_title="HiDevs GitHub Agent", layout="wide")
@@ -31,23 +29,17 @@ except KeyError:
 # Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Simple Gemini function
+# Simple Gemini function with correct model names
 def call_gemini(prompt):
     """Simple function to call Gemini API"""
     try:
-        # Try the most reliable model first
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Use correct model names - these are the available ones
+        model = genai.GenerativeModel('gemini-pro')
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        try:
-            # Fallback to pro model
-            model = genai.GenerativeModel('gemini-1.5-pro')
-            response = model.generate_content(prompt)
-            return response.text
-        except:
-            st.error(f"Gemini API Error: {str(e)}")
-            return None
+        st.error(f"Gemini API Error: {str(e)}")
+        return None
 
 # Utility functions
 def clean_github_url(url: str) -> str:
@@ -147,9 +139,6 @@ def validate_project_alignment(github_project_name, eval_criteria, skills, codeb
     
     if validation_result is None:
         return {"vrejected": True, "rejection_reason": "AI service unavailable"}
-    
-    # TEMPORARY DEBUG
-    st.write(f"🔍 DEBUG - Validator Response: {validation_result}")
     
     validation_result = validation_result.strip()
     
