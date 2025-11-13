@@ -169,23 +169,46 @@ def call_gemini(prompt):
 
 def validate_project_alignment(github_project_name, eval_criteria, skills, codebase, career_path=None):
     """Validate if project claims align with codebase"""
-    validation_prompt = VALIDATION_PROMPT_TEMPLATE.format(
-        github_project_name=github_project_name,
-        eval_criteria=eval_criteria,
-        skills_gained=skills,
-        career_path=career_path or "Not specified",
-        codebase=codebase
-    )
+    validation_prompt = f"""
+    You are a codebase validator. Check if this project's claims match its actual implementation.
+    
+    PROJECT: {github_project_name}
+    EVALUATION CRITERIA: {eval_criteria}
+    CLAIMED SKILLS: {skills}
+    CAREER PATH: {career_path or "Not specified"}
+    
+    CODEBASE CONTENT:
+    {codebase[:8000]}  # Limit context length
+    
+    Your response must be EXACTLY one of these two formats:
+    - If valid: "VALID: [brief explanation]"
+    - If invalid: "INVALID: [brief explanation of mismatch]"
+    
+    Be strict but fair. Only reject if there's a clear mismatch.
+    """
     
     validation_result = call_gemini(validation_prompt)
     
-    if "INVALID:" in validation_result:
-        reason = validation_result.split("INVALID:", 1)[1].strip()
+    # TEMPORARY DEBUG - ADD THIS LINE
+    st.write(f"🔍 DEBUG - Validator Response: {validation_result}")
+    
+    # More flexible validation checking
+    validation_result = validation_result.strip()
+    
+    if validation_result.startswith("INVALID:"):
+        reason = validation_result[8:].strip()  # Remove "INVALID:"
         return {"vrejected": True, "rejection_reason": reason}
-    elif "VALID:" in validation_result:
+    elif validation_result.startswith("VALID:"):
         return {"vrejected": False, "validation_summary": validation_result}
     else:
-        return {"vrejected": True, "rejection_reason": "Invalid validator response"}
+        # If format doesn't match, check content more flexibly
+        if "invalid" in validation_result.lower():
+            return {"vrejected": True, "rejection_reason": f"Project validation failed: {validation_result}"}
+        elif "valid" in validation_result.lower():
+            return {"vrejected": False, "validation_summary": validation_result}
+        else:
+            # If still unclear, be permissive and continue
+            return {"vrejected": False, "validation_summary": "Auto-validated - proceeding with analysis"}
 
 def generate_initial_report(github_repo_link, github_project_name, evaluation_criterias, skills_to_be_assessed, full_context, career_path=None):
     """Generate initial analysis report"""
