@@ -65,33 +65,45 @@ if not validate_gemini_api_key():
 def call_gemini(prompt):
     """Simple function to call Gemini API with correct model names"""
     try:
-        # Try the most common model names - FIXED VERSION
-        available_models = [
-            'gemini-pro',  # Most widely available
-            'gemini-1.0-pro',
+        # Configure with the API key
+        genai.configure(api_key=GEMINI_API_KEY)
+        
+        # Get available models properly
+        available_models = list(genai.list_models())  # Convert generator to list
+        
+        # Try different model names that are commonly available
+        model_attempts = [
+            'gemini-pro',
+            'gemini-1.0-pro', 
             'models/gemini-pro'
         ]
         
-        for model_name in available_models:
+        for model_name in model_attempts:
             try:
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(prompt)
-                return response.text
+                # Check if this model is available
+                model_available = any(model_name in model.name for model in available_models)
+                if model_available:
+                    model = genai.GenerativeModel(model_name)
+                    response = model.generate_content(prompt)
+                    if response.text:
+                        return response.text
             except Exception as e:
                 print(f"Model {model_name} failed: {str(e)}")
                 continue
         
-        # If all specific models fail, try any available model
-        try:
-            models = genai.list_models()
-            if models:
-                first_available = models[0].name
-                model = genai.GenerativeModel(first_available)
+        # If specific models fail, try the first available model
+        if available_models:
+            first_model = available_models[0].name
+            try:
+                model = genai.GenerativeModel(first_model)
                 response = model.generate_content(prompt)
-                return response.text
-        except Exception as e:
-            st.error(f"❌ All Gemini models failed: {str(e)}")
-            return None
+                if response.text:
+                    return response.text
+            except Exception as e:
+                st.error(f"First available model ({first_model}) also failed: {str(e)}")
+        
+        st.error("❌ All Gemini models failed to produce a response")
+        return None
         
     except Exception as e:
         st.error(f"❌ Gemini API Error: {str(e)}")
@@ -116,7 +128,7 @@ def repo_exists(github_url: str, token: str) -> bool:
         owner_repo = "/".join(github_url.rstrip("/").split("/")[-2:])
         api_url = f"https://api.github.com/repos/{owner_repo}"
         headers = {"Authorization": f"token {token}"}
-        response = requests.get(api_url, headers=headers)
+        response = requests.get(api_url, headers=headers, timeout=10)
         return response.status_code == 200
     except:
         return False
