@@ -17,6 +17,8 @@ if 'analysis_result' not in st.session_state:
     st.session_state.analysis_result = None
 if 'analysis_in_progress' not in st.session_state:
     st.session_state.analysis_in_progress = False
+if 'debug_mode' not in st.session_state:
+    st.session_state.debug_mode = False
 
 # ========== LOAD ENVIRONMENT VARIABLES FIRST ==========
 # Load environment variables from Streamlit secrets
@@ -39,34 +41,8 @@ if not GITHUB_TOKEN:
 # Configure Gemini
 try:
     genai.configure(api_key=GEMINI_API_KEY)
-    st.success("✅ Gemini configured successfully")
 except Exception as e:
     st.error(f"❌ Gemini configuration failed: {str(e)}")
-    st.stop()
-
-def validate_gemini_api_key():
-    """Validate the Gemini API key and show available models"""
-    try:
-        # Get all available models
-        all_models = list(genai.list_models())
-        
-        # Filter only models that support generateContent
-        available_models = []
-        for model in all_models:
-            if 'generateContent' in model.supported_generation_methods:
-                available_models.append(model.name)
-        
-        st.success("✅ Gemini API key is valid!")
-        st.write(f"📋 Available GENERATIVE models: {available_models}")
-        return True, available_models
-    except Exception as e:
-        st.error(f"❌ Invalid Gemini API key: {str(e)}")
-        st.error("Please check your GEMINI_API_KEY in Streamlit secrets")
-        return False, []
-
-# Validate API key on startup
-is_valid, available_generative_models = validate_gemini_api_key()
-if not is_valid:
     st.stop()
 
 def call_gemini(prompt):
@@ -82,14 +58,13 @@ def call_gemini(prompt):
             if 'generateContent' in model.supported_generation_methods:
                 generative_models.append(model.name)
         
-        st.write(f"🔧 Trying generative models: {generative_models}")
-        
         # Try different model names that are commonly available for generation
         model_attempts = [
-            'gemini-pro',
-            'gemini-1.0-pro', 
-            'models/gemini-pro',
-            'models/gemini-1.0-pro'
+            'gemini-2.0-flash',
+            'gemini-2.0-flash-001',
+            'gemini-flash-latest',
+            'gemini-pro-latest',
+            'gemini-2.5-flash'
         ]
         
         # Add any available generative models to the attempts list
@@ -104,20 +79,22 @@ def call_gemini(prompt):
                     model = genai.GenerativeModel(model_name)
                     response = model.generate_content(prompt)
                     if response.text:
-                        st.success(f"✅ Successfully used model: {model_name}")
+                        if st.session_state.debug_mode:
+                            st.success(f"✅ Successfully used model: {model_name}")
                         return response.text
             except Exception as e:
-                print(f"Model {model_name} failed: {str(e)}")
+                if st.session_state.debug_mode:
+                    print(f"Model {model_name} failed: {str(e)}")
                 continue
         
         # If we reach here, no model worked
-        st.error("❌ All generative models failed. Available models that support generateContent:")
-        for model in generative_models:
-            st.write(f"  - {model}")
+        if st.session_state.debug_mode:
+            st.error("❌ All generative models failed.")
         return None
         
     except Exception as e:
-        st.error(f"❌ Gemini API Error: {str(e)}")
+        if st.session_state.debug_mode:
+            st.error(f"❌ Gemini API Error: {str(e)}")
         return None
 
 # Utility functions
@@ -441,6 +418,24 @@ with st.sidebar:
     st.header("⚙️ Configuration")
     st.info("Complex analyses may take 2-5 minutes")
     
+    # Debug mode toggle (hidden from users)
+    if st.checkbox("Developer Mode", value=False, key="debug_mode", help="Show technical details for debugging"):
+        st.session_state.debug_mode = True
+        try:
+            # Show available models in debug mode
+            all_models = list(genai.list_models())
+            generative_models = []
+            for model in all_models:
+                if 'generateContent' in model.supported_generation_methods:
+                    generative_models.append(model.name)
+            
+            st.write("🔧 Debug Info - Available Generative Models:")
+            st.write(generative_models)
+        except:
+            pass
+    else:
+        st.session_state.debug_mode = False
+    
     st.subheader("Supported Career Paths")
     st.write("""
     - Machine Learning Engineer
@@ -498,10 +493,14 @@ if submitted:
     else:
         st.session_state.analysis_in_progress = True
         
-        with st.spinner("🔍 Analyzing repository... This may take 2-5 minutes..."):
-            result = analyze_repository(github_repo, github_project_name, eval_criteria, skills, career_path)
-            st.session_state.analysis_result = result
-            st.session_state.analysis_in_progress = False
+        # Create a progress container
+        progress_container = st.container()
+        
+        with progress_container:
+            with st.spinner("🔍 Analyzing repository... This may take 2-5 minutes..."):
+                result = analyze_repository(github_repo, github_project_name, eval_criteria, skills, career_path)
+                st.session_state.analysis_result = result
+                st.session_state.analysis_in_progress = False
 
 # Display results
 if st.session_state.analysis_result and not st.session_state.analysis_in_progress:
@@ -570,14 +569,16 @@ if st.session_state.analysis_result and not st.session_state.analysis_in_progres
                     with st.expander(f"{criteria.get('criterion_name', 'Criteria')} - Score: {criteria.get('score', 'N/A')}/100"):
                         st.write(criteria.get('assessment_and_justification', 'No details available'))
             
-            # Raw JSON view
-            with st.expander("📊 View Raw Report JSON"):
-                st.json(report_data)
+            # Raw JSON view (only in debug mode)
+            if st.session_state.debug_mode:
+                with st.expander("🔧 Debug - View Raw Report JSON"):
+                    st.json(report_data)
                 
         except Exception as e:
             st.error(f"Error displaying report: {str(e)}")
-            with st.expander("🔍 Debug Information"):
-                st.write(result)
+            if st.session_state.debug_mode:
+                with st.expander("🔍 Debug Information"):
+                    st.write(result)
     
     elif result.get("status") == "rejected":
         st.error(f"❌ Analysis Rejected: {result.get('data', {}).get('rejection_reason', 'Unknown reason')}")
