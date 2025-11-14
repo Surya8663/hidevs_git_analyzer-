@@ -45,21 +45,28 @@ except Exception as e:
     st.stop()
 
 def validate_gemini_api_key():
-    """Validate the Gemini API key"""
+    """Validate the Gemini API key and show available models"""
     try:
-        # Try to list models to validate API key
-        models = genai.list_models()
-        available_models = [model.name for model in models]
+        # Get all available models
+        all_models = list(genai.list_models())
+        
+        # Filter only models that support generateContent
+        available_models = []
+        for model in all_models:
+            if 'generateContent' in model.supported_generation_methods:
+                available_models.append(model.name)
+        
         st.success("✅ Gemini API key is valid!")
-        st.write(f"📋 Available models: {available_models}")
-        return True
+        st.write(f"📋 Available GENERATIVE models: {available_models}")
+        return True, available_models
     except Exception as e:
         st.error(f"❌ Invalid Gemini API key: {str(e)}")
         st.error("Please check your GEMINI_API_KEY in Streamlit secrets")
-        return False
+        return False, []
 
 # Validate API key on startup
-if not validate_gemini_api_key():
+is_valid, available_generative_models = validate_gemini_api_key()
+if not is_valid:
     st.stop()
 
 def call_gemini(prompt):
@@ -68,41 +75,45 @@ def call_gemini(prompt):
         # Configure with the API key
         genai.configure(api_key=GEMINI_API_KEY)
         
-        # Get available models properly
-        available_models = list(genai.list_models())  # Convert generator to list
+        # Get available generative models
+        all_models = list(genai.list_models())
+        generative_models = []
+        for model in all_models:
+            if 'generateContent' in model.supported_generation_methods:
+                generative_models.append(model.name)
         
-        # Try different model names that are commonly available
+        st.write(f"🔧 Trying generative models: {generative_models}")
+        
+        # Try different model names that are commonly available for generation
         model_attempts = [
             'gemini-pro',
             'gemini-1.0-pro', 
-            'models/gemini-pro'
+            'models/gemini-pro',
+            'models/gemini-1.0-pro'
         ]
+        
+        # Add any available generative models to the attempts list
+        for model_name in generative_models:
+            if model_name not in model_attempts:
+                model_attempts.append(model_name)
         
         for model_name in model_attempts:
             try:
-                # Check if this model is available
-                model_available = any(model_name in model.name for model in available_models)
-                if model_available:
+                # Check if this model is available and supports generation
+                if model_name in generative_models:
                     model = genai.GenerativeModel(model_name)
                     response = model.generate_content(prompt)
                     if response.text:
+                        st.success(f"✅ Successfully used model: {model_name}")
                         return response.text
             except Exception as e:
                 print(f"Model {model_name} failed: {str(e)}")
                 continue
         
-        # If specific models fail, try the first available model
-        if available_models:
-            first_model = available_models[0].name
-            try:
-                model = genai.GenerativeModel(first_model)
-                response = model.generate_content(prompt)
-                if response.text:
-                    return response.text
-            except Exception as e:
-                st.error(f"First available model ({first_model}) also failed: {str(e)}")
-        
-        st.error("❌ All Gemini models failed to produce a response")
+        # If we reach here, no model worked
+        st.error("❌ All generative models failed. Available models that support generateContent:")
+        for model in generative_models:
+            st.write(f"  - {model}")
         return None
         
     except Exception as e:

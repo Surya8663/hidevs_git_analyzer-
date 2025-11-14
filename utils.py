@@ -21,15 +21,33 @@ load_dotenv()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+if not GEMINI_API_KEY:
+    raise ValueError("❌ GEMINI_API_KEY not found. Please check your environment variables.")
+
+if not GITHUB_TOKEN:
+    raise ValueError("❌ GITHUB_TOKEN not found. Please check your environment variables.")
+
 # Initialize LLM instances
+# In utils.py - Replace the LLM initialization section
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI
-    eval_llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", google_api_key=os.getenv("GEMINI_API_KEY"))
-    critique_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=os.getenv("GEMINI_API_KEY"))
-    validator_llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", google_api_key=os.getenv("GEMINI_API_KEY"))
+    # Use correct model names - these are the currently available ones
+    eval_llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro", google_api_key=os.getenv("GEMINI_API_KEY"))
+    critique_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=os.getenv("GEMINI_API_KEY"))
+    validator_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=os.getenv("GEMINI_API_KEY"))
 except ImportError:
     print("Error: langchain_google_genai not installed. Please install it with pip.")
     sys.exit(1)
+except Exception as e:
+    print(f"Error initializing Gemini models: {str(e)}")
+    # Fallback to available models
+    try:
+        eval_llm = ChatGoogleGenerativeAI(model="gemini-pro", google_api_key=os.getenv("GEMINI_API_KEY"))
+        critique_llm = ChatGoogleGenerativeAI(model="gemini-pro", google_api_key=os.getenv("GEMINI_API_KEY"))
+        validator_llm = ChatGoogleGenerativeAI(model="gemini-pro", google_api_key=os.getenv("GEMINI_API_KEY"))
+    except:
+        print("All Gemini model initialization failed")
+        sys.exit(1)
 
 # ---------------------- GITHUB VALIDATION ----------------------
 GITHUB_URL_PATTERN = re.compile(
