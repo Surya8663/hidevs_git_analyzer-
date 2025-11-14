@@ -65,11 +65,11 @@ if not validate_gemini_api_key():
 def call_gemini(prompt):
     """Simple function to call Gemini API with correct model names"""
     try:
-        # Try the most common model names
+        # Try the most common model names - FIXED VERSION
         available_models = [
-            'gemini-1.5-pro',
-            'gemini-1.5-flash', 
-            'gemini-pro'
+            'gemini-pro',  # Most widely available
+            'gemini-1.0-pro',
+            'models/gemini-pro'
         ]
         
         for model_name in available_models:
@@ -81,11 +81,14 @@ def call_gemini(prompt):
                 print(f"Model {model_name} failed: {str(e)}")
                 continue
         
-        # If all models fail, try the full path
+        # If all specific models fail, try any available model
         try:
-            model = genai.GenerativeModel('models/gemini-pro')
-            response = model.generate_content(prompt)
-            return response.text
+            models = genai.list_models()
+            if models:
+                first_available = models[0].name
+                model = genai.GenerativeModel(first_available)
+                response = model.generate_content(prompt)
+                return response.text
         except Exception as e:
             st.error(f"❌ All Gemini models failed: {str(e)}")
             return None
@@ -106,6 +109,17 @@ def clean_github_url(url: str) -> str:
 def is_valid_github_url(url: str) -> bool:
     pattern = re.compile(r'^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$')
     return bool(pattern.match(url))
+
+def repo_exists(github_url: str, token: str) -> bool:
+    """Check if the GitHub repository exists and is accessible."""
+    try:
+        owner_repo = "/".join(github_url.rstrip("/").split("/")[-2:])
+        api_url = f"https://api.github.com/repos/{owner_repo}"
+        headers = {"Authorization": f"token {token}"}
+        response = requests.get(api_url, headers=headers)
+        return response.status_code == 200
+    except:
+        return False
 
 def extract_owner_and_repo(repo_link):
     parts = repo_link.rstrip("/").split("/")
@@ -131,10 +145,18 @@ def extract_repo_content(owner, repo):
             readme_content = readme_file.decoded_content.decode().strip()
             readme_exists = True
         except:
-            pass
+            # Try other readme variations
+            for readme_name in ['README', 'readme.md', 'Readme.md']:
+                try:
+                    readme_file = repo_obj.get_contents(readme_name)
+                    readme_content = readme_file.decoded_content.decode().strip()
+                    readme_exists = True
+                    break
+                except:
+                    continue
         
         if not readme_exists:
-            return {"rejected": True, "rejection_reason": "No README.md file found"}
+            return {"rejected": True, "rejection_reason": "No README file found"}
         
         if len(readme_content) < 20:
             return {"rejected": True, "rejection_reason": "README is too short or uninformative"}
@@ -147,7 +169,7 @@ def extract_repo_content(owner, repo):
                 if content_file.type == "file":
                     repo_contents += f"File: {content_file.path}\n"
                     # Get content of key files
-                    if content_file.path.endswith(('.py', '.js', '.md', '.json', '.yml', '.yaml')):
+                    if content_file.path.endswith(('.py', '.js', '.md', '.json', '.yml', '.yaml', '.txt')):
                         try:
                             file_content = repo_obj.get_contents(content_file.path)
                             file_text = file_content.decoded_content.decode()
@@ -282,6 +304,9 @@ def extract_json_from_response(response: str):
             json_str = response[start_idx:end_idx]
             # Clean up common JSON issues
             json_str = json_str.replace('\\n', ' ').replace('\\t', ' ')
+            # Fix common JSON formatting issues
+            json_str = re.sub(r',\s*}', '}', json_str)
+            json_str = re.sub(r',\s*]', ']', json_str)
             return json.loads(json_str)
     
     # If still fails, create a basic report
@@ -315,6 +340,14 @@ def analyze_repository(github_repo, github_project_name, eval_criteria, skills, 
                 "status": "rejected",
                 "data": {"rejection_reason": "Invalid GitHub URL format"},
                 "message": "Invalid repository URL"
+            }
+        
+        # Check if repo exists
+        if not repo_exists(github_repo_clean, GITHUB_TOKEN):
+            return {
+                "status": "rejected",
+                "data": {"rejection_reason": "Repository not found, private, or inaccessible"},
+                "message": "Repository access failed"
             }
         
         # Extract repo content
