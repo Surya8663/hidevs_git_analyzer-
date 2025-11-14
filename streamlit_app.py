@@ -9,7 +9,7 @@ import google.generativeai as genai
 
 # Set page config FIRST
 st.set_page_config(page_title="HiDevs GitHub Repo Analyzer", layout="wide")
-st.title("🚀 HiDevs GitHub Repository Analyzer")
+st.title("HiDevs GitHub Repository Analyzer")
 st.markdown("### Get comprehensive, industry-level analysis of any public GitHub repository with AI-powered career insights")
 
 # Initialize session state
@@ -78,7 +78,138 @@ def call_gemini(prompt):
     except Exception:
         return None
 
-# [Previous utility functions remain the same: clean_github_url, is_valid_github_url, repo_exists, extract_owner_and_repo, extract_repo_content, validate_project_alignment]
+# Utility functions
+def clean_github_url(url: str) -> str:
+    url = url.strip()
+    if url.endswith(".git"):
+        url = url[:-4]
+    url = url.rstrip("/")
+    url = re.sub(r'/(tree|blob)/.*$', '', url)
+    return url
+
+def is_valid_github_url(url: str) -> bool:
+    pattern = re.compile(r'^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$')
+    return bool(pattern.match(url))
+
+def repo_exists(github_url: str, token: str) -> bool:
+    """Check if the GitHub repository exists and is accessible."""
+    try:
+        owner_repo = "/".join(github_url.rstrip("/").split("/")[-2:])
+        api_url = f"https://api.github.com/repos/{owner_repo}"
+        headers = {"Authorization": f"token {token}"}
+        response = requests.get(api_url, headers=headers, timeout=10)
+        return response.status_code == 200
+    except:
+        return False
+
+def extract_owner_and_repo(repo_link):
+    parts = repo_link.rstrip("/").split("/")
+    if len(parts) < 2:
+        raise ValueError("Invalid repository link format!")
+    owner, repo = parts[-2], parts[-1]
+    return owner, repo
+
+def extract_repo_content(owner, repo):
+    """Extract repository content using simple GitHub API calls"""
+    try:
+        g = Github(GITHUB_TOKEN)
+        repo_obj = g.get_repo(f'{owner}/{repo}')
+        
+        if repo_obj.private:
+            return {"rejected": True, "rejection_reason": "Repository is private"}
+        
+        # Check README
+        readme_exists = False
+        readme_content = ""
+        try:
+            readme_file = repo_obj.get_contents("README.md")
+            readme_content = readme_file.decoded_content.decode().strip()
+            readme_exists = True
+        except:
+            # Try other readme variations
+            for readme_name in ['README', 'readme.md', 'Readme.md']:
+                try:
+                    readme_file = repo_obj.get_contents(readme_name)
+                    readme_content = readme_file.decoded_content.decode().strip()
+                    readme_exists = True
+                    break
+                except:
+                    continue
+        
+        if not readme_exists:
+            return {"rejected": True, "rejection_reason": "No README file found"}
+        
+        if len(readme_content) < 20:
+            return {"rejected": True, "rejection_reason": "README is too short or uninformative"}
+        
+        # Get basic file structure
+        repo_contents = "Repository Structure:\n"
+        try:
+            contents = repo_obj.get_contents("")
+            for content_file in contents:
+                if content_file.type == "file":
+                    repo_contents += f"File: {content_file.path}\n"
+                    # Get content of key files
+                    if content_file.path.endswith(('.py', '.js', '.md', '.json', '.yml', '.yaml', '.txt')):
+                        try:
+                            file_content = repo_obj.get_contents(content_file.path)
+                            file_text = file_content.decoded_content.decode()
+                            # Limit file content to avoid huge responses
+                            repo_contents += f"Content (first 2000 chars):\n{file_text[:2000]}\n"
+                        except:
+                            repo_contents += "[Content not accessible]\n"
+                    repo_contents += "-" * 50 + "\n"
+                elif content_file.type == "dir":
+                    repo_contents += f"Directory: {content_file.path}/\n"
+        except Exception as e:
+            repo_contents += f"Error reading repository structure: {str(e)}\n"
+        
+        return {
+            "rejected": False,
+            "codebase": f"README:\n{readme_content}\n\n{repo_contents}"
+        }
+        
+    except Exception as e:
+        return {"rejected": True, "rejection_reason": f"Could not access repository: {str(e)}"}
+
+def validate_project_alignment(github_project_name, eval_criteria, skills, codebase, career_path=None):
+    """Validate if project claims align with codebase"""
+    validation_prompt = f"""
+    Check if this GitHub project matches its description.
+    
+    Project: {github_project_name}
+    Criteria: {eval_criteria}
+    Skills: {skills}
+    Career: {career_path or "General"}
+    
+    Codebase Preview:
+    {codebase[:4000]}
+    
+    Respond with ONLY:
+    VALID: [reason] 
+    or 
+    INVALID: [reason]
+    """
+    
+    validation_result = call_gemini(validation_prompt)
+    
+    if validation_result is None:
+        return {"vrejected": True, "rejection_reason": "AI service unavailable"}
+    
+    validation_result = validation_result.strip()
+    
+    if validation_result.startswith("INVALID:"):
+        reason = validation_result[8:].strip()
+        return {"vrejected": True, "rejection_reason": reason}
+    elif validation_result.startswith("VALID:"):
+        return {"vrejected": False, "validation_summary": validation_result}
+    else:
+        # If format is wrong but content suggests validity, continue
+        if "invalid" in validation_result.lower() or "reject" in validation_result.lower():
+            return {"vrejected": True, "rejection_reason": f"Validation failed: {validation_result}"}
+        else:
+            # Be permissive and continue with analysis
+            return {"vrejected": False, "validation_summary": "Proceeding with analysis"}
 
 def generate_initial_report(github_repo_link, github_project_name, evaluation_criterias, skills_to_be_assessed, full_context, career_path=None):
     """Generate detailed professional analysis report"""
@@ -233,7 +364,89 @@ def extract_json_from_response(response: str):
         }
     }
 
-# [Previous analyze_repository function remains the same]
+# Main analysis function
+def analyze_repository(github_repo, github_project_name, eval_criteria, skills, career_path=None):
+    """Main analysis function that runs entirely in Streamlit"""
+    try:
+        # Clean and validate URL
+        github_repo_clean = clean_github_url(github_repo)
+        if not is_valid_github_url(github_repo_clean):
+            return {
+                "status": "rejected",
+                "data": {"rejection_reason": "Invalid GitHub URL format"},
+                "message": "Invalid repository URL"
+            }
+        
+        # Check if repo exists
+        if not repo_exists(github_repo_clean, GITHUB_TOKEN):
+            return {
+                "status": "rejected",
+                "data": {"rejection_reason": "Repository not found, private, or inaccessible"},
+                "message": "Repository access failed"
+            }
+        
+        # Extract repo content
+        st.info("📦 Extracting repository content...")
+        owner, repo = extract_owner_and_repo(github_repo_clean)
+        repo_content = extract_repo_content(owner, repo)
+        
+        if repo_content.get("rejected"):
+            return {
+                "status": "rejected",
+                "data": {"rejection_reason": repo_content["rejection_reason"]},
+                "message": "Repository access failed"
+            }
+        
+        # Validate project alignment
+        st.info("🔍 Validating project alignment...")
+        validation = validate_project_alignment(
+            github_project_name, eval_criteria, skills, 
+            repo_content["codebase"], career_path
+        )
+        
+        if validation.get("vrejected"):
+            return {
+                "status": "rejected", 
+                "data": {"rejection_reason": validation["rejection_reason"]},
+                "message": "Project validation failed"
+            }
+        
+        # Generate report
+        st.info("📊 Generating analysis report...")
+        initial_report = generate_initial_report(
+            github_repo_clean, github_project_name, eval_criteria,
+            skills, repo_content["codebase"], career_path
+        )
+        
+        if initial_report is None:
+            return {
+                "status": "error",
+                "data": {"error": "AI service unavailable"},
+                "message": "Report generation failed"
+            }
+        
+        # Extract JSON from report
+        try:
+            report_json = extract_json_from_response(initial_report)
+            
+            return {
+                "status": "success",
+                "data": {"final_report": report_json},
+                "message": "Analysis completed successfully"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "data": {"error": f"Failed to parse report: {str(e)}"},
+                "message": "Report parsing failed"
+            }
+            
+    except Exception as e:
+        return {
+            "status": "error",
+            "data": {"error": str(e)},
+            "message": f"Analysis error: {str(e)}"
+        }
 
 # Sidebar configuration
 with st.sidebar:
