@@ -418,9 +418,13 @@ with st.sidebar:
     st.header("⚙️ Configuration")
     st.info("Complex analyses may take 2-5 minutes")
     
-    # Debug mode toggle (hidden from users)
-    if st.checkbox("Developer Mode", value=False, key="debug_mode", help="Show technical details for debugging"):
-        st.session_state.debug_mode = True
+    # Debug mode toggle (hidden from users) - FIXED: Don't modify session state after widget creation
+    debug_mode = st.checkbox("Developer Mode", value=st.session_state.debug_mode, key="debug_mode", help="Show technical details for debugging")
+    
+    if debug_mode != st.session_state.debug_mode:
+        st.session_state.debug_mode = debug_mode
+        
+    if st.session_state.debug_mode:
         try:
             # Show available models in debug mode
             all_models = list(genai.list_models())
@@ -433,8 +437,6 @@ with st.sidebar:
             st.write(generative_models)
         except:
             pass
-    else:
-        st.session_state.debug_mode = False
     
     st.subheader("Supported Career Paths")
     st.write("""
