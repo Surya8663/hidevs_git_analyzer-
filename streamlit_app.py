@@ -865,4 +865,4 @@ st.markdown("""
     <p>Professional GitHub Repository Analysis for Career Advancement</p>
     <p><strong>✨ Now supports ANY career path - type your dream job! ✨</strong></p>
 </div>
-""", unsafe_allow_html=True)
+""", unsafe_allow_html=True)# Trigger deployment
