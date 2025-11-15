@@ -9,7 +9,7 @@ import google.generativeai as genai
 
 # Set page config FIRST
 st.set_page_config(page_title="HiDevs GitHub Repo Analyzer", layout="wide")
-st.title("HiDevs GitHub Repository Analyzer")
+st.title("🚀 HiDevs GitHub Repository Analyzer")
 st.markdown("### Get comprehensive, industry-level analysis of any public GitHub repository with AI-powered career insights")
 
 # Initialize session state
@@ -457,9 +457,11 @@ with st.sidebar:
     if debug_mode != st.session_state.debug_mode:
         st.session_state.debug_mode = debug_mode
     
-    st.subheader("🎯 Supported Career Paths")
+    st.subheader("🎯 Popular Career Paths")
     st.write("""
+    **Common Examples:**
     - 🤖 Machine Learning Engineer
+    - 🧠 AI/Gen AI Engineer
     - 📊 Data Scientist  
     - 💻 Software Engineer
     - 🌐 Full Stack Developer
@@ -469,6 +471,12 @@ with st.sidebar:
     - 📈 Data Engineer
     - ☁️ Cloud Engineer
     - 🔒 Security Engineer
+    - 📱 Mobile Developer
+    - 🎮 Game Developer
+    - 🤖 Robotics Engineer
+    - 🔬 Research Scientist
+    
+    **💡 Tip:** You can type ANY career path in the input field below!
     """)
 
 # Main form
@@ -504,12 +512,11 @@ with st.form(key="analysis_form"):
             help="Skills you want to assess (comma separated)"
         )
     
-    career_path = st.selectbox(
-        "Career Path (Optional)",
-        ["", "Machine Learning Engineer", "Data Scientist", "Software Engineer", 
-         "Full Stack Developer", "Backend Developer", "Frontend Developer", 
-         "DevOps Engineer", "Data Engineer", "AI Engineer", "Cloud Engineer"],
-        help="Get career-specific insights and recommendations"
+    # CHANGED: Career Path as text input instead of selectbox
+    career_path = st.text_input(
+        "🎯 Career Path (Optional)",
+        placeholder="e.g., Gen AI Engineer, AI Researcher, Quantum Computing Engineer...",
+        help="Type any career path for specialized insights. Leave empty for general analysis."
     )
     
     submitted = st.form_submit_button("🚀 Launch Comprehensive Analysis")
@@ -524,7 +531,9 @@ if submitted:
         
         with progress_container:
             with st.spinner("🔍 Conducting comprehensive analysis... This may take 3-5 minutes for detailed review..."):
-                result = analyze_repository(github_repo, github_project_name, eval_criteria, skills, career_path)
+                # Use empty string if career_path is None or empty
+                career_path_value = career_path.strip() if career_path else None
+                result = analyze_repository(github_repo, github_project_name, eval_criteria, skills, career_path_value)
                 st.session_state.analysis_result = result
                 st.session_state.analysis_in_progress = False
 
@@ -553,7 +562,7 @@ if st.session_state.analysis_result and not st.session_state.analysis_in_progres
                 st.metric("📈 Status", "Success", help="Analysis completion status")
                 
             with col3:
-                if career_path:
+                if career_path and career_path.strip():
                     st.metric("🎯 Career Path", career_path, help="Target career analysis")
                 else:
                     st.metric("🎯 Analysis Type", "General", help="General technical analysis")
@@ -673,8 +682,8 @@ if st.session_state.analysis_result and not st.session_state.analysis_in_progres
                         for rec in recommendations:
                             st.info(f"• {rec}")
             
-            # Career Analysis Section
-            if career_path:
+            # Career Analysis Section (only if career path was provided)
+            if career_path and career_path.strip():
                 st.markdown("---")
                 st.header(f"🎯 Career Analysis: {career_path}")
                 
@@ -818,6 +827,7 @@ with st.expander("📖 How to Use This Professional Analyzer"):
     - **Innovation Factor**: Technical sophistication and uniqueness
     
     ### 🎯 Career-Focused Insights:
+    - **Custom Career Paths**: Type ANY career path (Gen AI Engineer, Quantum Computing, etc.)
     - Industry-relevant skill assessment
     - Career path alignment analysis
     - Portfolio enhancement recommendations
@@ -834,8 +844,8 @@ with st.expander("📖 How to Use This Professional Analyzer"):
     1. **Enter Repository URL** - Public GitHub repo with README
     2. **Provide Project Details** - Name and description
     3. **Set Evaluation Criteria** - What to analyze
-    4. **Select Target Skills** - Skills to assess
-    5. **Choose Career Path** - Get specialized insights
+    4. **Specify Target Skills** - Skills to assess
+    5. **Type Career Path** - Enter ANY career for specialized insights
     6. **Launch Analysis** - Get comprehensive report in 3-5 minutes
     
     **🎯 Perfect For:**
@@ -844,6 +854,7 @@ with st.expander("📖 How to Use This Professional Analyzer"):
     - Technical managers evaluating projects
     - Teams improving code quality
     - Students building professional projects
+    - Anyone exploring new career paths
     """)
 
 # Footer
@@ -852,5 +863,6 @@ st.markdown("""
 <div style='text-align: center'>
     <h3>Built with ❤️ using Streamlit & Google Gemini AI</h3>
     <p>Professional GitHub Repository Analysis for Career Advancement</p>
+    <p><strong>✨ Now supports ANY career path - type your dream job! ✨</strong></p>
 </div>
 """, unsafe_allow_html=True)
